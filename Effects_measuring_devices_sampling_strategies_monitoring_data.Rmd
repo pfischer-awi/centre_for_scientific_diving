@@ -1,5 +1,5 @@
 ---
-title: "R Notebook take care of your data"
+title: "R notebook for in silico sampling and further calculations in the manuscript “Effects of measuring devices and sampling strategies on the interpretation of monitoring data”."
 output:
   html_document: default
 ---
