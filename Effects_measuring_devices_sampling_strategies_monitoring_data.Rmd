@@ -1,0 +1,2850 @@
+---
+title: "R Notebook take care of your data"
+output:
+  html_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. 
+
+*Loading required R packages* 
+```{r , include=FALSE}
+if (!"lubridate" %in% installed.packages()) install.packages("lubridate")
+require(lubridate)
+if (!"ggplot2" %in% installed.packages()) install.packages("ggplot2")
+require(ggplot2)
+if (!"plyr" %in% installed.packages()) install.packages("plyr")
+require(plyr)
+if (!"knitr" %in% installed.packages()) install.packages("knitr")
+require(knitr)
+if (!"dplyr" %in% installed.packages()) install.packages("dplyr")
+require(dplyr)
+if (!"lsmeans" %in% installed.packages()) install.packages("lsmeans")
+require(lsmeans)
+if (!"reshape" %in% installed.packages()) install.packages("reshape")
+require(reshape)
+if (!"data.table" %in% installed.packages()) install.packages("data.table")
+require(data.table)
+if (!"broom" %in% installed.packages()) install.packages("broom")
+require(broom)
+if (!"kableExtra" %in% installed.packages()) install.packages("kableExtra")
+require(kableExtra)
+if (!"tidyr" %in% installed.packages()) install.packages("tidyr")
+require(tidyr)
+if (!"ggpmisc" %in% installed.packages()) install.packages("ggpmisc")
+require(ggpmisc)
+if (!"car" %in% installed.packages()) install.packages("car")
+require(car)
+if (!"multcomp" %in% installed.packages()) install.packages("multcomp")
+require(multcomp)
+
+
+
+```
+
+*Loading Svalbard dataset and selecting variable*
+```{r , include=FALSE}
+rm(list = ls())
+
+data_subset <- readRDS("~/Documents/Daten/Svalbard/NRT_data_download_svluwobs_svl_temperature_2012-06-01_2021-01-20.rds")
+total_sensor <- ncol(data_subset)
+
+data_subset$svluwobs_durafet_obsvlfr_01_hw_temperature <- NULL
+data_subset$svluwobs_ph_awi_01_temperature <- NULL
+data_subset$svluwobs_ph_awi_2019546_temperature <- NULL
+#data_subset$svluwobs_adcp_awi_17374_temperature <- NULL
+#data_subset$svluwobs_adcp_awi_23789_temperature <- NULL
+data_subset$svluwobs_ctd_awi_964_profiling_temperature_002 <- NULL
+data_subset$svluwobs_temperature_awi_01_temperature.x <- NULL
+data_subset$svluwobs_temperature_awi_02_temperature.x <- NULL
+data_subset$svluwobs_temperature_awi_02_temperature.y <- NULL
+data_subset$svluwobs_temperature_awi_01_temperature.y <- NULL
+data_subset$svluwobs_temperature_awi_03_temperature <- NULL
+data_subset$svluwobs_temperature_awi_03_temperature <- NULL
+data_subset$svluwobs_temperature_awi_04_temperature <- NULL
+data_subset$svluwobs_ctd_awi_964_temperature_002 <- NULL
+data_subset$svluwobs_seafet_obsvlfr_007_ph_temperature <- NULL
+data_subset$svluwobs_seafet_obsvlfr_1005_ph_temperature <- NULL
+data_subset$svluwobs_validated_data_svluwobs_qc15_water_temperature_10m_ci90 <- NULL
+
+```
+
+*Correcting variables*
+```{r , include=FALSE}
+data_subset$svluwobs_adcp_awi_23789_temperature <- data_subset$svluwobs_adcp_awi_23789_temperature/100
+```
+
+*Joining data from subsequent sensors (sensor replacements)*
+```{r , include=FALSE}
+                  
+data_subset$svluwobs_adcp_awi_17374_temperature <- ifelse(is.na(data_subset$svluwobs_adcp_awi_17374_temperature), data_subset$svluwobs_adcp_awi_23789_temperature, data_subset$svluwobs_adcp_awi_17374_temperature)
+data_subset$svluwobs_adcp_awi_23789_temperature <- NULL
+
+```
+
+*Transposing dataset so that sensor is an ID variable*
+```{r , include=FALSE}
+data_subset_hour <- melt(data_subset, id=c("datetime"))
+names(data_subset_hour)[2:3] <- c("sensor","temperature")
+
+```
+
+*Filtering  dataset by some plausability criteria*
+```{r , include=FALSE}
+data_subset_hour <- subset(data_subset_hour, temperature >= -2 &  temperature <= 10)
+data_subset_hour$time_res <- 'hour'
+data_subset_hour$sensor <- as.character(data_subset_hour$sensor)
+
+```
+
+*Making sensor names readable and delete unused variables*
+```{r , include=FALSE}
+data_subset_hour <- separate(data_subset_hour, sensor, c("site","id", "institute", "ser_nr", "parameter"),sep = "_")
+data_subset_hour$sensor_id <- paste(data_subset_hour$id, data_subset_hour$ser_nr, sep = "_")
+data_subset_hour <- data_subset_hour[, c("datetime", "sensor_id", "time_res", "temperature")]
+
+```
+
+
+### Results
+
+```{r , echo=FALSE}
+
+###########################################################
+#Plotting the single sensors and the validated datset in the root dataset # 
+###########################################################
+
+##Making a grid of 7 by 1 plots with the different sensors vertically. Put the regression lines in each plot as well as the statistcical parameters slope and slope significance. Do not put r2 in becasue this is not of relevance for discussion becasue many studies calculate linear regression.
+  
+
+root_all <- subset(data_subset_hour, datetime >= "2012-01-01 00:00:00" & datetime <= "2017-12-31 23:59:59")
+
+ j = ggplot(root_all, aes(x = datetime, y=temperature)) +
+      geom_point(size=0.2) + 
+      facet_wrap(~sensor_id) +
+      labs(x="year") +
+      scale_y_continuous(name="temperature (°C)", breaks=c(-2, 2,6,10)) +
+      theme(axis.text.x = element_text(size = 12)) +
+      theme(axis.text.y = element_text(size = 10)) +
+      geom_smooth(method = "lm", se = FALSE, linetype = "solid", color="black", size = 0.5) +
+      theme_bw()
+    
+  print(j)
+  png(filename="~/Documents/Daten/MOSES/Hydrologische Extreme/ms_take_care_of_your_data/root_all _data.png", width=1200, height=800, units = "px", res=180)
+  print(j)
+  dev.off()
+  
+  
+  ##Regression calculation
+df_random_anova <- root_all
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+
+
+models <- dlply(df_random_anova, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df_random_anova))
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+
+
+fitted_models = df_random_anova %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+
+
+```
+
+
+
+
+
+*Defining root dataset for all subsequent virtual samplings with and time period*
+```{r , echo=FALSE}
+start_time <- "10:00"
+end_time <- "15:30"
+  data_subset_hour <- subset(data_subset_hour, format(datetime, "%H:%M") >= start_time & format(datetime, "%H:%M") < end_time)
+  data_subset_hour <- subset(data_subset_hour, datetime >= "2012-01-01 00:00:00" & datetime <= "2017-12-31 23:59:59")
+  root <- data_subset_hour
+  rm(data_subset_hour)
+```
+
+
+
+
+Figure 1 show sensor data from different temperature sensors available in the underwater set-up sempled with a temporal resolution of 1 hour. From a total of `r total_sensor-1` sensors available for temperature in the overall setup, only `r ncol(data_subset)-2` sensors provided enough data covering the entire analysis period from `r min(root$datetime)` to `r max(root$datetime)`. All other sensors had significant data gaps and were rejected. Additionally, the dataset **validated data** was used, which is the compiled dataset of all available `r total_sensor-1` sensors for the entire sampling period (for details on plausability and quality routines see secrtion Material & Methods). For each sensor, linear regression (temperature ~ datetime) is calculated and plotted.
+
+#### Hourly sampling full resolution between 
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for daily repetitive (cycles) sampling # 
+###########################################################
+  options(scipen=0)
+
+#for the basic sampling, one virtual sampling is done
+  cycles=1
+  
+  df <- root
+  df$sampling_freq <- "hour"
+  df$sampling_group <- "all"
+  
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+
+  df_random_rep <- df
+  df_random_rep$replicate <- 1 
+  
+###################################################################################
+#Testing factors datetime, sensor and replicate for significance and interactions #
+###################################################################################
+
+df_random_anova <- df_random_rep
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id*replicate, data = df_random_anova)
+df_anova_all_result <- as.data.frame(anova(m.interaction))
+df_anova_all_result$`Pr(>F).id` <- ifelse(df_anova_all_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_all_result$`Pr(>F)`>0.001 & df_anova_all_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_all_result$`Pr(>F)`>0.01 & df_anova_all_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_all_result$sampling_freq <- df$sampling_freq[1]
+df_anova_all_result$replicate <- "all replicates"
+df_anova_all_result$`Mean Sq` <- NULL
+df_anova_all_result$`F value` <- NULL
+
+######################################  
+#Looping through replicate samplings #
+######################################     
+
+### First remove old summary datasets
+
+if (exists(c("md_result_all","df_anova_result_all", "random_sampling_contrast_all"))) {
+    rm(md_result_all, df_anova_result_all, random_sampling_contrast_all)
+}
+
+ for (var in unique(df_random_rep$replicate)) {
+
+df_random <- df_random_rep[df_random_rep$replicate==var,]
+
+##########################################################################################  
+#Plotting daily temperature sampling versus time with simple linear regression over time #
+##########################################################################################       
+    plot_title = paste(min(df_random$datetime), " - ", max(df_random$datetime),". Sampling frequency:", df_random$sampling_freq[1], "/ Replicate:",var)
+
+    j <-ggplot(df_random, aes(datetime, temperature)) + 
+      facet_wrap(~ sensor_id) +
+      geom_point(size = 0.2, color="blue") +
+      geom_smooth(method = "lm", se = FALSE, na.rm = TRUE) +
+      labs(title = plot_title) +
+      theme(plot.title = element_text(size=11))
+      print(j)
+
+#######################################################
+#Calculating regressions coefficients for each sensor #
+#######################################################
+
+# return a list
+models <- dlply(df_random, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_random %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+md_result$replicate <- df_random$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq", "replicate")]
+#print(md_result) 
+if (!exists("md_result_all")) {
+    md_result_all <- md_result} else {
+      md_result_all <- rbind(md_result_all,md_result)
+    }
+
+##################################################
+#Testing which factors are significant for slope #
+##################################################
+
+#Transposing sensors to a variable
+df_random_anova <- df_random
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_anova)
+df_anova_result <- as.data.frame(anova(m.interaction))
+df_anova_result$'Pr(>F).id' <- ifelse(df_anova_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_result$`Pr(>F)`>0.001 & df_anova_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_result$`Pr(>F)`>0.01 & df_anova_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_result$sampling_freq <- df$sampling_freq[1]
+df_anova_result$replicate <- df_random$replicate[1]
+#print(df_anova_result)
+df_anova_result$`Sum Sq` <- NULL
+df_anova_result$`F value` <- NULL
+
+if (!exists("df_anova_result_all")) {
+    df_anova_result_all <- df_anova_result} else {
+      df_anova_result_all <- rbind(df_anova_result_all, df_anova_result)
+    }
+
+####################################################################
+##Contrast statistic: Testing if slopes are significanly different #
+####################################################################
+
+df_random_contrast <- df_random
+df_random_contrast$datetime_n <- as.numeric(df_random_contrast$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_contrast)
+# Obtain slopes
+m.lst <- lstrends(m.interaction, "sensor_id", var="datetime_n")
+# Compare slopes
+random_sampling_contrast <- as.data.frame(pairs(m.lst))
+random_sampling_contrast$p.value.id <- ifelse(random_sampling_contrast$p.value<=0.001, "***", ifelse(random_sampling_contrast$p.value>0.001 & random_sampling_contrast$p.value<=0.01,"**",ifelse(random_sampling_contrast$p.value>0.01 & random_sampling_contrast$p.value<=0.05,"*","n.s.")))
+random_sampling_contrast$sampling_freq <- df$sampling_freq[1]
+random_sampling_contrast$replicate <- df_random_contrast$replicate[1]
+#print(random_sampling_contrast) 
+random_sampling_contrast$SE <- NULL
+random_sampling_contrast$t.ratio <- NULL
+random_sampling_contrast$df <- NULL
+
+if (!exists("random_sampling_contrast_all")) {
+    random_sampling_contrast_all <- random_sampling_contrast} else {
+      random_sampling_contrast_all <- rbind(random_sampling_contrast_all, random_sampling_contrast)
+    }
+
+#####################################################################################
+#Plotting regression coefficient slope for each sensor over time for daily sampling #
+#####################################################################################
+
+tmp <- md_result
+tmp$rep <- as.factor(tmp$rep)
+
+plot_title = paste("Temperature increase (slope) per year. ",format(as.Date(min(data_subset$datetime))), "to", format(as.Date(max(data_subset$datetime))),"Sampling resolution: ",  df_random_contrast$sampling_freq[1], "/ Nr. of replicate samplings:", cycles)
+
+ j <- ggplot(tmp, aes(x = sensor_id, y=estimate_slope), ylab="slope") + 
+    geom_bar(stat="identity", position="dodge") +
+    labs(title = plot_title, y="slope (°C / year)") + 
+  #significances of slopes across sensors
+    annotate("text", x = "oxygen_574", y = 0.4, label = "A", size=6) +
+    annotate("text", x = "sbe45_0403", y = 0.4, label = "A", size=6) +
+    annotate("text", x = "sbe38_0657", y = 0.4, label = "AB", size=6) +
+    annotate("text", x = "validated_svluwobs", y = 0.4, label = "AB", size=6) +
+    annotate("text", x = "adcp_17374", y = 0.4, label = "B", size=6) +
+  #significances of individual slopes against 0
+    annotate("text", x = "oxygen_574", y = 0.35, label = "***", size=6) +
+    annotate("text", x = "sbe45_0403", y = 0.35, label = "***", size=6) +
+    annotate("text", x = "sbe38_0657", y = 0.35, label = "***", size=6) +
+    annotate("text", x = "validated_svluwobs", y = 0.35, label = "***", size=6) +
+    annotate("text", x = "adcp_17374", y = 0.35, label = "***", size=6) +
+    theme(plot.title = element_text(size=8))
+    print(j)
+
+############################################
+#end loop for repetitive (cycles) sampling #
+############################################    
+  } 
+######################################################  
+# Creating reasonable filenames and tidy up workspace#
+######################################################  
+assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result)
+print(assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result))
+
+assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all)
+print(assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all))
+
+#assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all)
+#print(assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all))
+
+assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all)
+print(assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all))
+
+################################
+
+```
+
+Figure 1) Water temperatures from `r min(df$datetime)` to `r max(df$datetime)` measured with different sensors. Sensor id's are shown in the facette header. The sensor *validated-svluwobs* show the validated dataset compiled from all available `r nrow(data)`sensors. For details on the individual sensors as well as on the compiled temperarture data, see Material and Methods. In all panels, a linear regression is plotted using the lm(function) of R.
+
+Table 1 shows the result of an ANOVA with the factors 'datetime' and 'sensor_id' with interactions. The analysis shows, that for an hourly sampling scheme, both, the factor datetime as well as 'sensor_id' have significant effects on the temperature measurements. Most important,  also the interactions between the two factors are highly significant, indicating that the measured rate of temperature increase over the time periold `r min(df$datetime)` to `r max(df$datetime)` is significantly different between the sensors.
+
+Additionally, table 2 shows that all temperature increases are significantly different t0 0 and positive. The highest temperature increase per year is measured by the sensor `r  tmp[1,1]` with an overall increase of `r  round(tmp[1,2],2)` °C per year. In contrast, the lowest overall increase was measured by the sensor  `r  tmp[4,1]` with an overall increase of `r  tmp[4,2]` °C per year. The validated data (sensor `r  tmp[5,1]`) showed an overall increase of `r  tmp[5,2]` °C per year.
+
+Table 3 show a contrast analysis of the sensors calculating statistical differences between the slopes of the individual sensors and figure 2 summarises these results. The * symbols above the individual bars indicate if the slope (temperature increase per year) of each sensor is significant (* indicates p<0.05, ** p< 0.01 and *** p<0.001). The letters above the bars indicate which sensors have significantly different slopes (temperature increases per year) (p<0.05) with identical letters meaning no statistical difference in slope. 
+
+The above analysis was based on the full dataset with sampling frequency of `r df$time_res[1]`. Based on this dataset, virtual sampling campaigns were conducted simulating a daily, weekly and monthly sampling. The hypothesis is tested, that sampling intensity with respect to its temporal resolution does not affect the overall result from the full resolution dataset, that the average water temperature significantly increases over the time period `r min(root$datetime)` to `r max(root$datetime)`.
+
+Additionaly, with larger sampling intervalls, there is a temporal uncertaninty when the sampling is done within a scheduled time intervall. When sampling is planned e.g,. at a specific day within each week or within the month, different sampling strategies are possible. One may decide to fix the sampling within the individual time period (day, week, month) by random choice to reduce / avoid a sampling bias by unknown confounding temporal patterns (e.g. when sampling is done every week the exact day, there may be a tide related weekly pattern which we do not know but which confounds the sampling). A random choice of the sampling time in a certain period may therefore be statistically recommended. To test the effects of random sampling within the selected overall time period (day, week, month), we simulated random samplimng by doing 10 virtual sampling campaigns within each sampling period (day, week, month) with random choice of the exact sampling times. To test the effects of this random selection of the sampling time, we did the random sampling e.g with a weekly samplimng scheme with 'full random' selection within the time period (sampling can be from monday to friday), with 'half random' selection choice (sampling can be done only Tuedays to Wednesday) and "restricted choice' (sampling can be done only on Wednesday buit with free choice of the hour of the day between 10:00 housr and 15:00 hours).
+
+#### Daily sampling full random selection
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for daily repetitive (cycles) sampling # 
+###########################################################
+
+  cycles=100
+  options(scipen=0)
+  df <- root
+  df$sampling_freq <- "d-2"
+  df$sampling_group <- date(df$datetime)
+  
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+
+  if(exists("df_random_rep")) {
+    rm(df_random_rep)
+    }
+
+  for (i in 1:cycles) {
+  
+  df$replicate <- i 
+  tmp <- ddply(df,.(sampling_group),function(x) x[sample(nrow(x),1),])
+  tmp <- tmp[, c("datetime"),drop=FALSE]
+  df_random <- merge(df, tmp, by = 'datetime', all.y = TRUE)
+
+  if (!exists("df_random_rep")) {
+    df_random_rep <- df_random} else {
+      df_random_rep <- rbind(df_random_rep,df_random)
+    }
+  }
+###################################################################################
+#Testing factors datetime, sensor and replicate for significance and interactions #
+###################################################################################
+
+df_random_anova <- df_random_rep
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id*replicate, data = df_random_anova)
+df_anova_all_result <- as.data.frame(anova(m.interaction))
+df_anova_all_result$`Pr(>F).id` <- ifelse(df_anova_all_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_all_result$`Pr(>F)`>0.001 & df_anova_all_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_all_result$`Pr(>F)`>0.01 & df_anova_all_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_all_result$sampling_freq <- df$sampling_freq[1]
+df_anova_all_result$replicate <- "all replicates"
+df_anova_all_result$`Mean Sq` <- NULL
+df_anova_all_result$`F value` <- NULL
+
+######################################  
+#Looping through replicate samplings #
+######################################     
+
+### First remove old summary datasets
+
+if (exists(c("md_result_all","df_anova_result_all", "random_sampling_contrast_all"))) {
+    rm(md_result_all, df_anova_result_all, random_sampling_contrast_all)
+}
+
+ for (var in unique(df_random_rep$replicate)) {
+
+df_random <- df_random_rep[df_random_rep$replicate==var,]
+
+##########################################################################################  
+#Plotting daily temperature sampling versus time with simple linear regression over time #
+##########################################################################################       
+    plot_title = paste(min(df_random$datetime), " - ", max(df_random$datetime),". Sampling frequency:", df_random$sampling_freq[1], "/ Replicate:",var)
+
+    j <-ggplot(df_random, aes(datetime, temperature)) + 
+      facet_wrap(~ sensor_id) +
+      geom_point(size = 0.2, color="blue") +
+      geom_smooth(method = "lm", se = FALSE, na.rm = TRUE) +
+      labs(title = plot_title) +
+      theme(plot.title = element_text(size=11))
+      print(j)
+
+#######################################################
+#Calculating regressions coefficients for each sensor #
+#######################################################
+
+# return a list
+models <- dlply(df_random, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_random %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+md_result$replicate <- df_random$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq", "replicate")]
+#print(md_result) 
+if (!exists("md_result_all")) {
+    md_result_all <- md_result} else {
+      md_result_all <- rbind(md_result_all,md_result)
+    }
+
+##################################################
+#Testing which factors are significant for slope #
+##################################################
+
+#Transposing sensors to a variable
+df_random_anova <- df_random
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_anova)
+df_anova_result <- as.data.frame(anova(m.interaction))
+df_anova_result$'Pr(>F).id' <- ifelse(df_anova_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_result$`Pr(>F)`>0.001 & df_anova_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_result$`Pr(>F)`>0.01 & df_anova_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_result$sampling_freq <- df$sampling_freq[1]
+df_anova_result$replicate <- df_random$replicate[1]
+#print(df_anova_result)
+df_anova_result$`Sum Sq` <- NULL
+df_anova_result$`F value` <- NULL
+
+if (!exists("df_anova_result_all")) {
+    df_anova_result_all <- df_anova_result} else {
+      df_anova_result_all <- rbind(df_anova_result_all, df_anova_result)
+    }
+
+####################################################################
+##Contrast statistic: Testing if slopes are significanly different #
+####################################################################
+
+df_random_contrast <- df_random
+df_random_contrast$datetime_n <- as.numeric(df_random_contrast$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_contrast)
+# Obtain slopes
+m.lst <- lstrends(m.interaction, "sensor_id", var="datetime_n")
+# Compare slopes
+random_sampling_contrast <- as.data.frame(pairs(m.lst))
+random_sampling_contrast$p.value.id <- ifelse(random_sampling_contrast$p.value<=0.001, "***", ifelse(random_sampling_contrast$p.value>0.001 & random_sampling_contrast$p.value<=0.01,"**",ifelse(random_sampling_contrast$p.value>0.01 & random_sampling_contrast$p.value<=0.05,"*","n.s.")))
+random_sampling_contrast$sampling_freq <- df$sampling_freq[1]
+random_sampling_contrast$replicate <- df_random_contrast$replicate[1]
+#print(random_sampling_contrast) 
+random_sampling_contrast$SE <- NULL
+random_sampling_contrast$t.ratio <- NULL
+random_sampling_contrast$df <- NULL
+
+if (!exists("random_sampling_contrast_all")) {
+    random_sampling_contrast_all <- random_sampling_contrast} else {
+      random_sampling_contrast_all <- rbind(random_sampling_contrast_all, random_sampling_contrast)
+    }
+
+#####################################################################################
+#Plotting regression coefficient slope for each sensor over time for daily sampling #
+#####################################################################################
+
+tmp <- md_result
+tmp$rep <- as.factor(tmp$rep)
+
+plot_title = paste("Temperature increase (slope) per year. ",format(as.Date(min(data_subset$datetime))), "to", format(as.Date(max(data_subset$datetime))),"Sampling resolution: ",  df_random_contrast$sampling_freq[1], "/ Nr. of replicate samplings:", cycles)
+
+ j <- ggplot(tmp, aes(x = sensor_id, y=estimate_slope), ylab="slope") + 
+    geom_bar(stat="identity", position="dodge") +
+    labs(title = plot_title, y="slope (°C / year)") + 
+  #significances of slopes across sensors
+  #   annotate("text", x = "oxygen_574", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.4, label = "B", size=6) +
+  # #significances of individual slopes against 0
+  #   annotate("text", x = "oxygen_574", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.35, label = "***", size=6) +
+    theme(plot.title = element_text(size=8))
+    print(j)
+
+############################################
+#end loop for repetitive (cycles) sampling #
+############################################    
+  } 
+######################################################  
+# Creating reasonable filenames and tidy up workspace#
+######################################################  
+assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result)
+print(assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result))
+
+assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all)
+print(assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all))
+
+assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all)
+print(assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all))
+
+assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all)
+print(assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all))
+
+
+################################
+
+```
+
+#### Daily sampling restricted_choice
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for daily repetitive (cycles) sampling # 
+###########################################################
+  cycles = 1  
+  options(scipen=0)
+  df <- root
+  df$sampling_freq <- "d-1"
+  df$sampling_group <- date(df$datetime)
+
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+
+  if(exists("df_random_rep")) {
+    rm(df_random_rep)
+    }
+ 
+  start_time <- "11:59"
+  end_time <- "12:30"
+  df_random_rep <- subset(df, format(datetime, "%H:%M") >= start_time & format(datetime, "%H:%M") < end_time)
+  df_random_rep$replicate <- cycles
+  
+###################################################################################
+#Testing factors datetime, sensor and replicate for significance and interactions #
+###################################################################################
+
+df_random_anova <- df_random_rep
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id*replicate, data = df_random_anova)
+df_anova_all_result <- as.data.frame(anova(m.interaction))
+df_anova_all_result$`Pr(>F).id` <- ifelse(df_anova_all_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_all_result$`Pr(>F)`>0.001 & df_anova_all_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_all_result$`Pr(>F)`>0.01 & df_anova_all_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_all_result$sampling_freq <- df$sampling_freq[1]
+df_anova_all_result$replicate <- "all replicates"
+df_anova_all_result$`Mean Sq` <- NULL
+df_anova_all_result$`F value` <- NULL
+
+######################################  
+#Looping through replicate samplings #
+######################################     
+
+### First remove old summary datasets
+
+if (exists(c("md_result_all","df_anova_result_all", "random_sampling_contrast_all"))) {
+    rm(md_result_all, df_anova_result_all, random_sampling_contrast_all)
+}
+
+ for (var in unique(df_random_rep$replicate)) {
+
+df_random <- df_random_rep[df_random_rep$replicate==var,]
+
+##########################################################################################  
+#Plotting daily temperature sampling versus time with simple linear regression over time #
+##########################################################################################       
+    plot_title = paste(min(df_random$datetime), " - ", max(df_random$datetime),". Sampling frequency:", df_random$sampling_freq[1], "/ Replicate:",var)
+
+    j <-ggplot(df_random, aes(datetime, temperature)) + 
+      facet_wrap(~ sensor_id) +
+      geom_point(size = 0.2, color="blue") +
+      geom_smooth(method = "lm", se = FALSE, na.rm = TRUE) +
+      labs(title = plot_title) +
+      theme(plot.title = element_text(size=11))
+      print(j)
+
+#######################################################
+#Calculating regressions coefficients for each sensor #
+#######################################################
+
+# return a list
+models <- dlply(df_random, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_random %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+md_result$replicate <- df_random$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq", "replicate")]
+#print(md_result) 
+if (!exists("md_result_all")) {
+    md_result_all <- md_result} else {
+      md_result_all <- rbind(md_result_all,md_result)
+    }
+
+##################################################
+#Testing which factors are significant for slope #
+##################################################
+
+#Transposing sensors to a variable
+df_random_anova <- df_random
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_anova)
+df_anova_result <- as.data.frame(anova(m.interaction))
+df_anova_result$'Pr(>F).id' <- ifelse(df_anova_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_result$`Pr(>F)`>0.001 & df_anova_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_result$`Pr(>F)`>0.01 & df_anova_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_result$sampling_freq <- df$sampling_freq[1]
+df_anova_result$replicate <- df_random$replicate[1]
+#print(df_anova_result)
+df_anova_result$`Sum Sq` <- NULL
+df_anova_result$`F value` <- NULL
+
+if (!exists("df_anova_result_all")) {
+    df_anova_result_all <- df_anova_result} else {
+      df_anova_result_all <- rbind(df_anova_result_all, df_anova_result)
+    }
+
+####################################################################
+##Contrast statistic: Testing if slopes are significanly different #
+####################################################################
+
+df_random_contrast <- df_random
+df_random_contrast$datetime_n <- as.numeric(df_random_contrast$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_contrast)
+# Obtain slopes
+m.lst <- lstrends(m.interaction, "sensor_id", var="datetime_n")
+# Compare slopes
+random_sampling_contrast <- as.data.frame(pairs(m.lst))
+random_sampling_contrast$p.value.id <- ifelse(random_sampling_contrast$p.value<=0.001, "***", ifelse(random_sampling_contrast$p.value>0.001 & random_sampling_contrast$p.value<=0.01,"**",ifelse(random_sampling_contrast$p.value>0.01 & random_sampling_contrast$p.value<=0.05,"*","n.s.")))
+random_sampling_contrast$sampling_freq <- df$sampling_freq[1]
+random_sampling_contrast$replicate <- df_random_contrast$replicate[1]
+#print(random_sampling_contrast) 
+random_sampling_contrast$SE <- NULL
+random_sampling_contrast$t.ratio <- NULL
+random_sampling_contrast$df <- NULL
+
+if (!exists("random_sampling_contrast_all")) {
+    random_sampling_contrast_all <- random_sampling_contrast} else {
+      random_sampling_contrast_all <- rbind(random_sampling_contrast_all, random_sampling_contrast)
+    }
+
+#####################################################################################
+#Plotting regression coefficient slope for each sensor over time for daily sampling #
+#####################################################################################
+
+tmp <- md_result
+tmp$rep <- as.factor(tmp$rep)
+
+plot_title = paste("Temperature increase (slope) per year. ",format(as.Date(min(data_subset$datetime))), "to", format(as.Date(max(data_subset$datetime))),"Sampling resolution: ",  df_random_contrast$sampling_freq[1], "/ Nr. of replicate samplings: ", cycles)
+
+ j <- ggplot(tmp, aes(x = sensor_id, y=estimate_slope), ylab="slope") + 
+    geom_bar(stat="identity", position="dodge") +
+    labs(title = plot_title, y="slope (°C / year)") + 
+  #significances of slopes across sensors
+  #   annotate("text", x = "oxygen_574", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.4, label = "B", size=6) +
+  # #significances of individual slopes against 0
+  #   annotate("text", x = "oxygen_574", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.35, label = "***", size=6) +
+    theme(plot.title = element_text(size=8))
+    print(j)
+
+############################################
+#end loop for repetitive (cycles) sampling #
+############################################    
+  } 
+######################################################  
+# Creating reasonable filenames and tidy up workspace#
+######################################################  
+assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result)
+print(assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result))
+
+assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all)
+print(assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all))
+
+assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all)
+print(assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all))
+
+assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all)
+print(assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all))
+
+
+################################
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### Weekly sampling full random selection
+```{r , echo=FALSE}
+###########################################################
+#Preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+
+  cycles = 100
+  options(scipen=0) 
+  df <- root
+  df$sampling_freq <- as.factor("w-3")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",week(df$datetime)))
+
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+    if(exists("df_random_rep")) {
+    rm(df_random_rep)
+    }  
+  
+  for (i in 1:cycles) {
+  
+  df$replicate <- i 
+  
+  tmp <- ddply(df,.(sampling_group),function(x) x[sample(nrow(x),1),])
+  tmp <- tmp[, c("datetime"),drop=FALSE]
+
+  df_random <- merge(df, tmp, by = 'datetime', all.y = TRUE)
+
+  if (!exists("df_random_rep")) {
+    df_random_rep <- df_random } else {
+      df_random_rep <- rbind(df_random_rep,df_random)
+    }
+  }
+  
+###################################################################################
+#Testing factors datetime, sensor and replicate for significance and interactions #
+###################################################################################
+
+options(scipen=0)
+  
+df_random_anova <- df_random_rep
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id*replicate, data = df_random_anova)
+df_anova_all_result <- as.data.frame(anova(m.interaction))
+df_anova_all_result$`Pr(>F).id` <- ifelse(df_anova_all_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_all_result$`Pr(>F)`>0.001 & df_anova_all_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_all_result$`Pr(>F)`>0.01 & df_anova_all_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_all_result$sampling_freq <- df$sampling_freq[1]
+df_anova_all_result$replicate <- "all replicates"
+df_anova_all_result$`Mean Sq` <- NULL
+df_anova_all_result$`F value` <- NULL
+
+######################################  
+#Looping through replicate samplings #
+######################################     
+
+### Firts removing old summary datasets
+
+if (exists(c("md_result_all","df_anova_result_all", "random_sampling_contrast_all"))) {
+    rm(md_result_all, df_anova_result_all, random_sampling_contrast_all)
+}
+
+ for (var in unique(df_random_rep$replicate)) {
+
+df_random <- df_random_rep[df_random_rep$replicate==var,]
+
+##########################################################################################  
+#Plotting daily temperature sampling versus time with simple linear regression over time #
+##########################################################################################       
+    plot_title = paste(min(df_random$datetime), " - ", max(df_random$datetime),". Sampling frequency:", df_random$sampling_freq[1], "/ Replicate:",var)
+
+    j <-ggplot(df_random, aes(datetime, temperature)) + 
+      facet_wrap(~ sensor_id) +
+      geom_point(size = 0.2, color="blue") +
+      geom_smooth(method = "lm", se = FALSE, na.rm = TRUE) +
+      labs(title = plot_title) +
+      theme(plot.title = element_text(size=11))
+      print(j)
+#######################################################
+#Calculating regressions coefficients for each sensor #
+#######################################################
+
+# return a list
+models <- dlply(df_random, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_random %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+md_result$replicate <- df_random$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq", "replicate")]
+#print(md_result) 
+if (!exists("md_result_all")) {
+    md_result_all <- md_result} else {
+      md_result_all <- rbind(md_result_all,md_result)
+    }
+##################################################
+#Testing which factors are significant for slope #
+##################################################
+
+#Transposing sensors to a variable
+df_random_anova <- df_random
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_anova)
+df_anova_result <- as.data.frame(anova(m.interaction))
+df_anova_result$'Pr(>F).id' <- ifelse(df_anova_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_result$`Pr(>F)`>0.001 & df_anova_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_result$`Pr(>F)`>0.01 & df_anova_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_result$sampling_freq <- df$sampling_freq[1]
+df_anova_result$replicate <- df_random$replicate[1]
+#print(df_anova_result)
+df_anova_result$`Sum Sq` <- NULL
+df_anova_result$`F value` <- NULL
+
+if (!exists("df_anova_result_all")) {
+    df_anova_result_all <- df_anova_result} else {
+      df_anova_result_all <- rbind(df_anova_result_all, df_anova_result)
+    }
+
+####################################################################
+##Contrast statistic: Testing if slopes are significanly different #
+####################################################################
+
+df_random_contrast <- df_random
+df_random_contrast$datetime_n <- as.numeric(df_random_contrast$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_contrast)
+# Obtain slopes
+m.lst <- lstrends(m.interaction, "sensor_id", var="datetime_n")
+# Compare slopes
+random_sampling_contrast <- as.data.frame(pairs(m.lst))
+random_sampling_contrast$p.value.id <- ifelse(random_sampling_contrast$p.value<=0.001, "***", ifelse(random_sampling_contrast$p.value>0.001 & random_sampling_contrast$p.value<=0.01,"**",ifelse(random_sampling_contrast$p.value>0.01 & random_sampling_contrast$p.value<=0.05,"*","n.s.")))
+random_sampling_contrast$sampling_freq <- df$sampling_freq[1]
+random_sampling_contrast$replicate <- df_random_contrast$replicate[1]
+#print(random_sampling_contrast) 
+random_sampling_contrast$SE <- NULL
+random_sampling_contrast$t.ratio <- NULL
+random_sampling_contrast$df <- NULL
+
+if (!exists("random_sampling_contrast_all")) {
+    random_sampling_contrast_all <- random_sampling_contrast} else {
+      random_sampling_contrast_all <- rbind(random_sampling_contrast_all, random_sampling_contrast)
+    }
+#####################################################################################
+#Plotting regression coefficient slope for each sensor over time for daily sampling #
+#####################################################################################
+
+tmp <- md_result
+tmp$rep <- as.factor(tmp$rep)
+
+plot_title = paste("Temperature increase (slope) per year. ",format(as.Date(min(data_subset$datetime))), "to", format(as.Date(max(data_subset$datetime))),"Sampling resolution: ",  df_random_contrast$sampling_freq[1], "/ Nr. of replicate samplings:", cycles)
+
+ j <- ggplot(tmp, aes(x = sensor_id, y=estimate_slope), ylab="slope") + 
+    geom_bar(stat="identity", position="dodge") +
+    labs(title = plot_title, y="slope (°C / year)") + 
+  #significances of slopes across sensors
+  #   annotate("text", x = "oxygen_574", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.4, label = "B", size=6) +
+  # #significances of individual slopes against 0
+  #   annotate("text", x = "oxygen_574", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.35, label = "***", size=6) +
+    theme(plot.title = element_text(size=8))
+    print(j)
+
+############################################
+#end loop for repetitive (cycles) sampling #
+############################################    
+  } 
+#################################  
+# Creating reasonable filenames #
+#################################  
+assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result)
+print(assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result))
+
+assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all)
+print(assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all))
+
+assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all)
+print(assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all))
+
+assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all)
+print(assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all))
+################################
+
+```
+
+#### Weekly sampling half random selection
+```{r , echo=FALSE}
+###########################################################
+#Preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+
+  cycles = 100
+  options(scipen=0) 
+  df <- root
+  df$sampling_freq <- as.factor("w-2")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",week(df$datetime)))
+  
+  start_day <- 2 #Tuesday
+  end_day <- 4  #Thursday
+  df <- subset(df, as.POSIXlt(df$datetime)$wday >= start_day & as.POSIXlt(df$datetime)$wday <= end_day)
+
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+    if(exists("df_random_rep")) {
+    rm(df_random_rep)
+    }  
+  
+  for (i in 1:cycles) {
+  
+  df$replicate <- i 
+  
+  tmp <- ddply(df,.(sampling_group),function(x) x[sample(nrow(x),1),])
+  tmp <- tmp[, c("datetime"),drop=FALSE]
+
+  df_random <- merge(df, tmp, by = 'datetime', all.y = TRUE)
+
+  if (!exists("df_random_rep")) {
+    df_random_rep <- df_random } else {
+      df_random_rep <- rbind(df_random_rep,df_random)
+    }
+  }
+  
+###################################################################################
+#Testing factors datetime, sensor and replicate for significance and interactions #
+###################################################################################
+
+options(scipen=0)
+  
+df_random_anova <- df_random_rep
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id*replicate, data = df_random_anova)
+df_anova_all_result <- as.data.frame(anova(m.interaction))
+df_anova_all_result$`Pr(>F).id` <- ifelse(df_anova_all_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_all_result$`Pr(>F)`>0.001 & df_anova_all_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_all_result$`Pr(>F)`>0.01 & df_anova_all_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_all_result$sampling_freq <- df$sampling_freq[1]
+df_anova_all_result$replicate <- "all replicates"
+df_anova_all_result$`Mean Sq` <- NULL
+df_anova_all_result$`F value` <- NULL
+
+######################################  
+#Looping through replicate samplings #
+######################################     
+
+### Firts removing old summary datasets
+
+if (exists(c("md_result_all","df_anova_result_all", "random_sampling_contrast_all"))) {
+    rm(md_result_all, df_anova_result_all, random_sampling_contrast_all)
+}
+
+ for (var in unique(df_random_rep$replicate)) {
+
+df_random <- df_random_rep[df_random_rep$replicate==var,]
+
+##########################################################################################  
+#Plotting daily temperature sampling versus time with simple linear regression over time #
+##########################################################################################       
+    plot_title = paste(min(df_random$datetime), " - ", max(df_random$datetime),". Sampling frequency:", df_random$sampling_freq[1], "/ Replicate:",var)
+
+    j <-ggplot(df_random, aes(datetime, temperature)) + 
+      facet_wrap(~ sensor_id) +
+      geom_point(size = 0.2, color="blue") +
+      geom_smooth(method = "lm", se = FALSE, na.rm = TRUE) +
+      labs(title = plot_title) +
+      theme(plot.title = element_text(size=11))
+      print(j)
+#######################################################
+#Calculating regressions coefficients for each sensor #
+#######################################################
+
+# return a list
+models <- dlply(df_random, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_random %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+md_result$replicate <- df_random$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq", "replicate")]
+#print(md_result) 
+if (!exists("md_result_all")) {
+    md_result_all <- md_result} else {
+      md_result_all <- rbind(md_result_all,md_result)
+    }
+##################################################
+#Testing which factors are significant for slope #
+##################################################
+
+#Transposing sensors to a variable
+df_random_anova <- df_random
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_anova)
+df_anova_result <- as.data.frame(anova(m.interaction))
+df_anova_result$'Pr(>F).id' <- ifelse(df_anova_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_result$`Pr(>F)`>0.001 & df_anova_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_result$`Pr(>F)`>0.01 & df_anova_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_result$sampling_freq <- df$sampling_freq[1]
+df_anova_result$replicate <- df_random$replicate[1]
+#print(df_anova_result)
+df_anova_result$`Sum Sq` <- NULL
+df_anova_result$`F value` <- NULL
+
+if (!exists("df_anova_result_all")) {
+    df_anova_result_all <- df_anova_result} else {
+      df_anova_result_all <- rbind(df_anova_result_all, df_anova_result)
+    }
+
+####################################################################
+##Contrast statistic: Testing if slopes are significanly different #
+####################################################################
+
+df_random_contrast <- df_random
+df_random_contrast$datetime_n <- as.numeric(df_random_contrast$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_contrast)
+# Obtain slopes
+m.lst <- lstrends(m.interaction, "sensor_id", var="datetime_n")
+# Compare slopes
+random_sampling_contrast <- as.data.frame(pairs(m.lst))
+random_sampling_contrast$p.value.id <- ifelse(random_sampling_contrast$p.value<=0.001, "***", ifelse(random_sampling_contrast$p.value>0.001 & random_sampling_contrast$p.value<=0.01,"**",ifelse(random_sampling_contrast$p.value>0.01 & random_sampling_contrast$p.value<=0.05,"*","n.s.")))
+random_sampling_contrast$sampling_freq <- df$sampling_freq[1]
+random_sampling_contrast$replicate <- df_random_contrast$replicate[1]
+#print(random_sampling_contrast) 
+random_sampling_contrast$SE <- NULL
+random_sampling_contrast$t.ratio <- NULL
+random_sampling_contrast$df <- NULL
+
+if (!exists("random_sampling_contrast_all")) {
+    random_sampling_contrast_all <- random_sampling_contrast} else {
+      random_sampling_contrast_all <- rbind(random_sampling_contrast_all, random_sampling_contrast)
+    }
+#####################################################################################
+#Plotting regression coefficient slope for each sensor over time for daily sampling #
+#####################################################################################
+
+tmp <- md_result
+tmp$rep <- as.factor(tmp$rep)
+
+plot_title = paste("Temperature increase (slope) per year. ",format(as.Date(min(data_subset$datetime))), "to", format(as.Date(max(data_subset$datetime))),"Sampling resolution: ",  df_random_contrast$sampling_freq[1], "/ Nr. of replicate samplings:", cycles)
+
+ j <- ggplot(tmp, aes(x = sensor_id, y=estimate_slope), ylab="slope") + 
+    geom_bar(stat="identity", position="dodge") +
+    labs(title = plot_title, y="slope (°C / year)") + 
+  #significances of slopes across sensors
+  #   annotate("text", x = "oxygen_574", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.4, label = "B", size=6) +
+  # #significances of individual slopes against 0
+  #   annotate("text", x = "oxygen_574", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.35, label = "***", size=6) +
+    theme(plot.title = element_text(size=8))
+    print(j)
+
+############################################
+#end loop for repetitive (cycles) sampling #
+############################################    
+  } 
+#################################  
+# Creating reasonable filenames #
+#################################  
+assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result)
+print(assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result))
+
+assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all)
+print(assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all))
+
+assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all)
+print(assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all))
+
+assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all)
+print(assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all))
+################################
+
+```
+
+
+#### Weekly sampling restricted selection
+```{r , echo=FALSE}
+###########################################################
+#Preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+
+  cycles = 100
+  options(scipen=0) 
+  df <- root
+  df$sampling_freq <- as.factor("w-1")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",week(df$datetime)))
+  
+  start_day <- 3 #Tuesday
+  end_day <- 3  #Thursday
+  df <- subset(df, as.POSIXlt(df$datetime)$wday >= start_day & as.POSIXlt(df$datetime)$wday <= end_day)
+
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+    if(exists("df_random_rep")) {
+    rm(df_random_rep)
+    }  
+  
+  for (i in 1:cycles) {
+  
+  df$replicate <- i 
+  
+  tmp <- ddply(df,.(sampling_group),function(x) x[sample(nrow(x),1),])
+  tmp <- tmp[, c("datetime"),drop=FALSE]
+
+  df_random <- merge(df, tmp, by = 'datetime', all.y = TRUE)
+
+  if (!exists("df_random_rep")) {
+    df_random_rep <- df_random } else {
+      df_random_rep <- rbind(df_random_rep,df_random)
+    }
+  }
+  
+###################################################################################
+#Testing factors datetime, sensor and replicate for significance and interactions #
+###################################################################################
+
+options(scipen=0)
+  
+df_random_anova <- df_random_rep
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id*replicate, data = df_random_anova)
+df_anova_all_result <- as.data.frame(anova(m.interaction))
+df_anova_all_result$`Pr(>F).id` <- ifelse(df_anova_all_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_all_result$`Pr(>F)`>0.001 & df_anova_all_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_all_result$`Pr(>F)`>0.01 & df_anova_all_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_all_result$sampling_freq <- df$sampling_freq[1]
+df_anova_all_result$replicate <- "all replicates"
+df_anova_all_result$`Mean Sq` <- NULL
+df_anova_all_result$`F value` <- NULL
+
+######################################  
+#Looping through replicate samplings #
+######################################     
+
+### Firts removing old summary datasets
+
+if (exists(c("md_result_all","df_anova_result_all", "random_sampling_contrast_all"))) {
+    rm(md_result_all, df_anova_result_all, random_sampling_contrast_all)
+}
+
+ for (var in unique(df_random_rep$replicate)) {
+
+df_random <- df_random_rep[df_random_rep$replicate==var,]
+
+##########################################################################################  
+#Plotting daily temperature sampling versus time with simple linear regression over time #
+##########################################################################################       
+    plot_title = paste(min(df_random$datetime), " - ", max(df_random$datetime),". Sampling frequency:", df_random$sampling_freq[1], "/ Replicate:",var)
+
+    j <-ggplot(df_random, aes(datetime, temperature)) + 
+      facet_wrap(~ sensor_id) +
+      geom_point(size = 0.2, color="blue") +
+      geom_smooth(method = "lm", se = FALSE, na.rm = TRUE) +
+      labs(title = plot_title) +
+      theme(plot.title = element_text(size=11))
+      print(j)
+#######################################################
+#Calculating regressions coefficients for each sensor #
+#######################################################
+
+# return a list
+models <- dlply(df_random, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_random %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+md_result$replicate <- df_random$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq", "replicate")]
+#print(md_result) 
+if (!exists("md_result_all")) {
+    md_result_all <- md_result} else {
+      md_result_all <- rbind(md_result_all,md_result)
+    }
+##################################################
+#Testing which factors are significant for slope #
+##################################################
+
+#Transposing sensors to a variable
+df_random_anova <- df_random
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_anova)
+df_anova_result <- as.data.frame(anova(m.interaction))
+df_anova_result$'Pr(>F).id' <- ifelse(df_anova_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_result$`Pr(>F)`>0.001 & df_anova_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_result$`Pr(>F)`>0.01 & df_anova_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_result$sampling_freq <- df$sampling_freq[1]
+df_anova_result$replicate <- df_random$replicate[1]
+#print(df_anova_result)
+df_anova_result$`Sum Sq` <- NULL
+df_anova_result$`F value` <- NULL
+
+if (!exists("df_anova_result_all")) {
+    df_anova_result_all <- df_anova_result} else {
+      df_anova_result_all <- rbind(df_anova_result_all, df_anova_result)
+    }
+
+####################################################################
+##Contrast statistic: Testing if slopes are significanly different #
+####################################################################
+
+df_random_contrast <- df_random
+df_random_contrast$datetime_n <- as.numeric(df_random_contrast$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_contrast)
+# Obtain slopes
+m.lst <- lstrends(m.interaction, "sensor_id", var="datetime_n")
+# Compare slopes
+random_sampling_contrast <- as.data.frame(pairs(m.lst))
+random_sampling_contrast$p.value.id <- ifelse(random_sampling_contrast$p.value<=0.001, "***", ifelse(random_sampling_contrast$p.value>0.001 & random_sampling_contrast$p.value<=0.01,"**",ifelse(random_sampling_contrast$p.value>0.01 & random_sampling_contrast$p.value<=0.05,"*","n.s.")))
+random_sampling_contrast$sampling_freq <- df$sampling_freq[1]
+random_sampling_contrast$replicate <- df_random_contrast$replicate[1]
+#print(random_sampling_contrast) 
+random_sampling_contrast$SE <- NULL
+random_sampling_contrast$t.ratio <- NULL
+random_sampling_contrast$df <- NULL
+
+if (!exists("random_sampling_contrast_all")) {
+    random_sampling_contrast_all <- random_sampling_contrast} else {
+      random_sampling_contrast_all <- rbind(random_sampling_contrast_all, random_sampling_contrast)
+    }
+#####################################################################################
+#Plotting regression coefficient slope for each sensor over time for daily sampling #
+#####################################################################################
+
+tmp <- md_result
+tmp$rep <- as.factor(tmp$rep)
+
+plot_title = paste("Temperature increase (slope) per year. ",format(as.Date(min(data_subset$datetime))), "to", format(as.Date(max(data_subset$datetime))),"Sampling resolution: ",  df_random_contrast$sampling_freq[1], "/ Nr. of replicate samplings:", cycles)
+
+ j <- ggplot(tmp, aes(x = sensor_id, y=estimate_slope), ylab="slope") + 
+    geom_bar(stat="identity", position="dodge") +
+    labs(title = plot_title, y="slope (°C / year)") + 
+  #significances of slopes across sensors
+  #   annotate("text", x = "oxygen_574", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.4, label = "B", size=6) +
+  # #significances of individual slopes against 0
+  #   annotate("text", x = "oxygen_574", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.35, label = "***", size=6) +
+    theme(plot.title = element_text(size=8))
+    print(j)
+
+############################################
+#end loop for repetitive (cycles) sampling #
+############################################    
+  } 
+#################################  
+# Creating reasonable filenames #
+#################################  
+assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result)
+print(assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result))
+
+assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all)
+print(assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all))
+
+assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all)
+print(assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all))
+
+assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all)
+print(assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all))
+################################
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### Monthly sampling full random selection
+```{r , echo=FALSE}
+############################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+############################################################
+  cycles = 100
+  options(scipen=0)   
+  df <- root
+  df$sampling_freq <- as.factor("m-3")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",month(df$datetime)))
+
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+    if(exists("df_random_rep")) {
+    rm(df_random_rep)
+    }  
+  
+  for (i in 1:cycles) {
+  
+  df$replicate <- i 
+  
+  tmp <- ddply(df,.(sampling_group),function(x) x[sample(nrow(x),1),])
+  tmp <- tmp[, c("datetime"),drop=FALSE]
+
+  df_random <- merge(df, tmp, by = 'datetime', all.y = TRUE)
+
+  if (!exists("df_random_rep")) {
+    df_random_rep <- df_random } else {
+      df_random_rep <- rbind(df_random_rep,df_random)
+    }
+  }
+  
+###################################################################################
+#Testing factors datetime, sensor and replicate for significance and interactions #
+###################################################################################
+  
+df_random_anova <- df_random_rep
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id*replicate, data = df_random_anova)
+df_anova_all_result <- as.data.frame(anova(m.interaction))
+df_anova_all_result$`Pr(>F).id` <- ifelse(df_anova_all_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_all_result$`Pr(>F)`>0.001 & df_anova_all_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_all_result$`Pr(>F)`>0.01 & df_anova_all_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_all_result$sampling_freq <- df$sampling_freq[1]
+df_anova_all_result$replicate <- "all replicates"
+df_anova_all_result$`Mean Sq` <- NULL
+df_anova_all_result$`F value` <- NULL
+
+######################################  
+#Looping through replicate samplings #
+######################################     
+
+### Firts removing old summary datasets
+
+if (exists(c("md_result_all","df_anova_result_all", "random_sampling_contrast_all"))) {
+    rm(md_result_all, df_anova_result_all, random_sampling_contrast_all)
+}
+
+ for (var in unique(df_random_rep$replicate)) {
+
+df_random <- df_random_rep[df_random_rep$replicate==var,]
+
+##########################################################################################  
+#Plotting daily temperature sampling versus time with simple linear regression over time #
+##########################################################################################       
+    plot_title = paste(min(df_random$datetime), " - ", max(df_random$datetime),". Sampling frequency:", df_random$sampling_freq[1], "/ Replicate:",var)
+
+    j <-ggplot(df_random, aes(datetime, temperature)) + 
+      facet_wrap(~ sensor_id) +
+      geom_point(size = 0.2, color="blue") +
+      geom_smooth(method = "lm", se = FALSE, na.rm = TRUE) +
+      labs(title = plot_title) +
+      theme(plot.title = element_text(size=11))
+      print(j)
+#######################################################
+#Calculating regressions coefficients for each sensor #
+#######################################################
+
+# return a list
+models <- dlply(df_random, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_random %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+md_result$replicate <- df_random$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq", "replicate")]
+#print(md_result) 
+if (!exists("md_result_all")) {
+    md_result_all <- md_result} else {
+      md_result_all <- rbind(md_result_all,md_result)
+    }
+##################################################
+#Testing which factors are significant for slope #
+##################################################
+
+#Transposing sensors to a variable
+df_random_anova <- df_random
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_anova)
+df_anova_result <- as.data.frame(anova(m.interaction))
+df_anova_result$'Pr(>F).id' <- ifelse(df_anova_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_result$`Pr(>F)`>0.001 & df_anova_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_result$`Pr(>F)`>0.01 & df_anova_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_result$sampling_freq <- df$sampling_freq[1]
+df_anova_result$replicate <- df_random$replicate[1]
+#print(df_anova_result)
+df_anova_result$`Sum Sq` <- NULL
+df_anova_result$`F value` <- NULL
+
+if (!exists("df_anova_result_all")) {
+    df_anova_result_all <- df_anova_result} else {
+      df_anova_result_all <- rbind(df_anova_result_all, df_anova_result)
+    }
+
+####################################################################
+##Contrast statistic: Testing if slopes are significanly different #
+####################################################################
+
+df_random_contrast <- df_random
+df_random_contrast$datetime_n <- as.numeric(df_random_contrast$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_contrast)
+# Obtain slopes
+m.lst <- lstrends(m.interaction, "sensor_id", var="datetime_n")
+# Compare slopes
+random_sampling_contrast <- as.data.frame(pairs(m.lst))
+random_sampling_contrast$p.value.id <- ifelse(random_sampling_contrast$p.value<=0.001, "***", ifelse(random_sampling_contrast$p.value>0.001 & random_sampling_contrast$p.value<=0.01,"**",ifelse(random_sampling_contrast$p.value>0.01 & random_sampling_contrast$p.value<=0.05,"*","n.s.")))
+random_sampling_contrast$sampling_freq <- df$sampling_freq[1]
+random_sampling_contrast$replicate <- df_random_contrast$replicate[1]
+#print(random_sampling_contrast) 
+random_sampling_contrast$SE <- NULL
+random_sampling_contrast$t.ratio <- NULL
+random_sampling_contrast$df <- NULL
+
+if (!exists("random_sampling_contrast_all")) {
+    random_sampling_contrast_all <- random_sampling_contrast} else {
+      random_sampling_contrast_all <- rbind(random_sampling_contrast_all, random_sampling_contrast)
+    }
+#####################################################################################
+#Plotting regression coefficient slope for each sensor over time for daily sampling #
+#####################################################################################
+
+tmp <- md_result
+tmp$rep <- as.factor(tmp$rep)
+
+plot_title = paste("Temperature increase (slope) per year. ",format(as.Date(min(data_subset$datetime))), "to", format(as.Date(max(data_subset$datetime))),"Sampling resolution: ",  df_random_contrast$sampling_freq[1], "/ Nr. of replicate samplings:", cycles)
+
+ j <- ggplot(tmp, aes(x = sensor_id, y=estimate_slope), ylab="slope") + 
+    geom_bar(stat="identity", position="dodge") +
+    labs(title = plot_title, y="slope (°C / year)") + 
+  #significances of slopes across sensors
+  #   annotate("text", x = "oxygen_574", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.4, label = "B", size=6) +
+  # #significances of individual slopes against 0
+  #   annotate("text", x = "oxygen_574", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.35, label = "***", size=6) +
+    theme(plot.title = element_text(size=8))
+    print(j)
+
+############################################
+#end loop for repetitive (cycles) sampling #
+############################################    
+  } 
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result)
+print(assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result))
+
+assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all)
+print(assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all))
+
+assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all)
+print(assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all))
+
+assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all)
+print(assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all))
+################################
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Doing the same analysis using time series analysis tools.
+
+
+Creating a synthethic dataset with ranges of the real dataset. 
+a) Creating a sinusoidal dataset over the entire time with a maximum temperature in summer and miniomal temperatures inj winter based on the measured data. 
+b) Laying over a seasonal or daily variation
+c) laying over sensor variability
+
+d) Comparing the synthethical datset with the sin situ dataset to see similarities and differences
+e) Analyzing differences as extremes ->finding relatioinships of the extremes to other paramneters (e.g. special weind situation, differences in NAO etc. etc. ).
+
+#### Monthly sampling half random selection
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  cycles = 100
+  options(scipen=0)   
+  df <- root
+  df$sampling_freq <- as.factor("m-2")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",month(df$datetime)))
+
+  start_day <- 10 #Tuesday
+  end_day <- 20  #Thursday
+  df <- subset(df, as.POSIXlt(df$datetime)$mday >= start_day & as.POSIXlt(df$datetime)$mday <= end_day)
+  
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+    if(exists("df_random_rep")) {
+    rm(df_random_rep)
+    }  
+  
+  for (i in 1:cycles) {
+  
+  df$replicate <- i 
+  
+  tmp <- ddply(df,.(sampling_group),function(x) x[sample(nrow(x),1),])
+  tmp <- tmp[, c("datetime"),drop=FALSE]
+
+  df_random <- merge(df, tmp, by = 'datetime', all.y = TRUE)
+
+  if (!exists("df_random_rep")) {
+    df_random_rep <- df_random } else {
+      df_random_rep <- rbind(df_random_rep,df_random)
+    }
+  }
+  
+###################################################################################
+#Testing factors datetime, sensor and replicate for significance and interactions #
+###################################################################################
+  
+df_random_anova <- df_random_rep
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id*replicate, data = df_random_anova)
+df_anova_all_result <- as.data.frame(anova(m.interaction))
+df_anova_all_result$`Pr(>F).id` <- ifelse(df_anova_all_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_all_result$`Pr(>F)`>0.001 & df_anova_all_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_all_result$`Pr(>F)`>0.01 & df_anova_all_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_all_result$sampling_freq <- df$sampling_freq[1]
+df_anova_all_result$replicate <- "all replicates"
+df_anova_all_result$`Mean Sq` <- NULL
+df_anova_all_result$`F value` <- NULL
+
+######################################  
+#Looping through replicate samplings #
+######################################     
+
+### Firts removing old summary datasets
+
+if (exists(c("md_result_all","df_anova_result_all", "random_sampling_contrast_all"))) {
+    rm(md_result_all, df_anova_result_all, random_sampling_contrast_all)
+}
+
+ for (var in unique(df_random_rep$replicate)) {
+
+df_random <- df_random_rep[df_random_rep$replicate==var,]
+
+##########################################################################################  
+#Plotting daily temperature sampling versus time with simple linear regression over time #
+##########################################################################################       
+    plot_title = paste(min(df_random$datetime), " - ", max(df_random$datetime),". Sampling frequency:", df_random$sampling_freq[1], "/ Replicate:",var)
+
+    j <-ggplot(df_random, aes(datetime, temperature)) + 
+      facet_wrap(~ sensor_id) +
+      geom_point(size = 0.2, color="blue") +
+      geom_smooth(method = "lm", se = FALSE, na.rm = TRUE) +
+      labs(title = plot_title) +
+      theme(plot.title = element_text(size=11))
+      print(j)
+#######################################################
+#Calculating regressions coefficients for each sensor #
+#######################################################
+
+# return a list
+models <- dlply(df_random, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_random %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+md_result$replicate <- df_random$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq", "replicate")]
+#print(md_result) 
+if (!exists("md_result_all")) {
+    md_result_all <- md_result} else {
+      md_result_all <- rbind(md_result_all,md_result)
+    }
+##################################################
+#Testing which factors are significant for slope #
+##################################################
+
+#Transposing sensors to a variable
+df_random_anova <- df_random
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_anova)
+df_anova_result <- as.data.frame(anova(m.interaction))
+df_anova_result$'Pr(>F).id' <- ifelse(df_anova_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_result$`Pr(>F)`>0.001 & df_anova_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_result$`Pr(>F)`>0.01 & df_anova_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_result$sampling_freq <- df$sampling_freq[1]
+df_anova_result$replicate <- df_random$replicate[1]
+#print(df_anova_result)
+df_anova_result$`Sum Sq` <- NULL
+df_anova_result$`F value` <- NULL
+
+if (!exists("df_anova_result_all")) {
+    df_anova_result_all <- df_anova_result} else {
+      df_anova_result_all <- rbind(df_anova_result_all, df_anova_result)
+    }
+
+####################################################################
+##Contrast statistic: Testing if slopes are significanly different #
+####################################################################
+
+df_random_contrast <- df_random
+df_random_contrast$datetime_n <- as.numeric(df_random_contrast$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_contrast)
+# Obtain slopes
+m.lst <- lstrends(m.interaction, "sensor_id", var="datetime_n")
+# Compare slopes
+random_sampling_contrast <- as.data.frame(pairs(m.lst))
+random_sampling_contrast$p.value.id <- ifelse(random_sampling_contrast$p.value<=0.001, "***", ifelse(random_sampling_contrast$p.value>0.001 & random_sampling_contrast$p.value<=0.01,"**",ifelse(random_sampling_contrast$p.value>0.01 & random_sampling_contrast$p.value<=0.05,"*","n.s.")))
+random_sampling_contrast$sampling_freq <- df$sampling_freq[1]
+random_sampling_contrast$replicate <- df_random_contrast$replicate[1]
+#print(random_sampling_contrast) 
+random_sampling_contrast$SE <- NULL
+random_sampling_contrast$t.ratio <- NULL
+random_sampling_contrast$df <- NULL
+
+if (!exists("random_sampling_contrast_all")) {
+    random_sampling_contrast_all <- random_sampling_contrast} else {
+      random_sampling_contrast_all <- rbind(random_sampling_contrast_all, random_sampling_contrast)
+    }
+#####################################################################################
+#Plotting regression coefficient slope for each sensor over time for daily sampling #
+#####################################################################################
+
+tmp <- md_result
+tmp$rep <- as.factor(tmp$rep)
+
+plot_title = paste("Temperature increase (slope) per year. ",format(as.Date(min(data_subset$datetime))), "to", format(as.Date(max(data_subset$datetime))),"Sampling resolution: ",  df_random_contrast$sampling_freq[1], "/ Nr. of replicate samplings:", cycles)
+
+ j <- ggplot(tmp, aes(x = sensor_id, y=estimate_slope), ylab="slope") + 
+    geom_bar(stat="identity", position="dodge") +
+    labs(title = plot_title, y="slope (°C / year)") + 
+  #significances of slopes across sensors
+  #   annotate("text", x = "oxygen_574", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.4, label = "B", size=6) +
+  # #significances of individual slopes against 0
+  #   annotate("text", x = "oxygen_574", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.35, label = "***", size=6) +
+    theme(plot.title = element_text(size=8))
+    print(j)
+
+############################################
+#end loop for repetitive (cycles) sampling #
+############################################    
+  } 
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result)
+print(assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result))
+
+assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all)
+print(assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all))
+
+assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all)
+print(assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all))
+
+assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all)
+print(assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all))
+################################
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Doing the same analysis using time series analysis tools.
+
+
+Creating a synthethic dataset with ranges of the real dataset. 
+a) Creating a sinusoidal dataset over the entire time with a maximum temperature in summer and miniomal temperatures inj winter based on the measured data. 
+b) Laying over a seasonal or daily variation
+c) laying over sensor variability
+
+d) Comparing the synthethical datset with the sin situ dataset to see similarities and differences
+e) Analyzing differences as extremes ->finding relatioinships of the extremes to other paramneters (e.g. special weind situation, differences in NAO etc. etc. ).
+
+#### Monthly sampling restricted selection
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  cycles = 100
+  options(scipen=0)   
+  df <- root
+  df$sampling_freq <- as.factor("m-1")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",month(df$datetime)))
+
+  start_day <- 15 #Tuesday
+  end_day <- 15  #Thursday
+  df <- subset(df, as.POSIXlt(df$datetime)$mday >= start_day & as.POSIXlt(df$datetime)$mday <= end_day)
+  
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+    if(exists("df_random_rep")) {
+    rm(df_random_rep)
+    }  
+  
+  for (i in 1:cycles) {
+  
+  df$replicate <- i 
+  
+  tmp <- ddply(df,.(sampling_group),function(x) x[sample(nrow(x),1),])
+  tmp <- tmp[, c("datetime"),drop=FALSE]
+
+  df_random <- merge(df, tmp, by = 'datetime', all.y = TRUE)
+
+  if (!exists("df_random_rep")) {
+    df_random_rep <- df_random } else {
+      df_random_rep <- rbind(df_random_rep,df_random)
+    }
+  }
+  
+###################################################################################
+#Testing factors datetime, sensor and replicate for significance and interactions #
+###################################################################################
+  
+df_random_anova <- df_random_rep
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id*replicate, data = df_random_anova)
+df_anova_all_result <- as.data.frame(anova(m.interaction))
+df_anova_all_result$`Pr(>F).id` <- ifelse(df_anova_all_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_all_result$`Pr(>F)`>0.001 & df_anova_all_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_all_result$`Pr(>F)`>0.01 & df_anova_all_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_all_result$sampling_freq <- df$sampling_freq[1]
+df_anova_all_result$replicate <- "all replicates"
+df_anova_all_result$`Mean Sq` <- NULL
+df_anova_all_result$`F value` <- NULL
+
+######################################  
+#Looping through replicate samplings #
+######################################     
+
+### Firts removing old summary datasets
+
+if (exists(c("md_result_all","df_anova_result_all", "random_sampling_contrast_all"))) {
+    rm(md_result_all, df_anova_result_all, random_sampling_contrast_all)
+}
+
+ for (var in unique(df_random_rep$replicate)) {
+
+df_random <- df_random_rep[df_random_rep$replicate==var,]
+
+##########################################################################################  
+#Plotting daily temperature sampling versus time with simple linear regression over time #
+##########################################################################################       
+    plot_title = paste(min(df_random$datetime), " - ", max(df_random$datetime),". Sampling frequency:", df_random$sampling_freq[1], "/ Replicate:",var)
+
+    j <-ggplot(df_random, aes(datetime, temperature)) + 
+      facet_wrap(~ sensor_id) +
+      geom_point(size = 0.2, color="blue") +
+      geom_smooth(method = "lm", se = FALSE, na.rm = TRUE) +
+      labs(title = plot_title) +
+      theme(plot.title = element_text(size=11))
+      print(j)
+#######################################################
+#Calculating regressions coefficients for each sensor #
+#######################################################
+
+# return a list
+models <- dlply(df_random, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_random %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+md_result$replicate <- df_random$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq", "replicate")]
+#print(md_result) 
+if (!exists("md_result_all")) {
+    md_result_all <- md_result} else {
+      md_result_all <- rbind(md_result_all,md_result)
+    }
+##################################################
+#Testing which factors are significant for slope #
+##################################################
+
+#Transposing sensors to a variable
+df_random_anova <- df_random
+df_random_anova$datetime_n <- as.numeric(df_random_anova$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_anova)
+df_anova_result <- as.data.frame(anova(m.interaction))
+df_anova_result$'Pr(>F).id' <- ifelse(df_anova_result$`Pr(>F)`<=0.001, "***", ifelse(df_anova_result$`Pr(>F)`>0.001 & df_anova_result$`Pr(>F)`<=0.01,"**",ifelse(df_anova_result$`Pr(>F)`>0.01 & df_anova_result$`Pr(>F)`<=0.05,"*","n.s.")))
+df_anova_result$sampling_freq <- df$sampling_freq[1]
+df_anova_result$replicate <- df_random$replicate[1]
+#print(df_anova_result)
+df_anova_result$`Sum Sq` <- NULL
+df_anova_result$`F value` <- NULL
+
+if (!exists("df_anova_result_all")) {
+    df_anova_result_all <- df_anova_result} else {
+      df_anova_result_all <- rbind(df_anova_result_all, df_anova_result)
+    }
+
+####################################################################
+##Contrast statistic: Testing if slopes are significanly different #
+####################################################################
+
+df_random_contrast <- df_random
+df_random_contrast$datetime_n <- as.numeric(df_random_contrast$datetime)
+m.interaction <- lm(temperature ~ datetime_n*sensor_id, data = df_random_contrast)
+# Obtain slopes
+m.lst <- lstrends(m.interaction, "sensor_id", var="datetime_n")
+# Compare slopes
+random_sampling_contrast <- as.data.frame(pairs(m.lst))
+random_sampling_contrast$p.value.id <- ifelse(random_sampling_contrast$p.value<=0.001, "***", ifelse(random_sampling_contrast$p.value>0.001 & random_sampling_contrast$p.value<=0.01,"**",ifelse(random_sampling_contrast$p.value>0.01 & random_sampling_contrast$p.value<=0.05,"*","n.s.")))
+random_sampling_contrast$sampling_freq <- df$sampling_freq[1]
+random_sampling_contrast$replicate <- df_random_contrast$replicate[1]
+#print(random_sampling_contrast) 
+random_sampling_contrast$SE <- NULL
+random_sampling_contrast$t.ratio <- NULL
+random_sampling_contrast$df <- NULL
+
+if (!exists("random_sampling_contrast_all")) {
+    random_sampling_contrast_all <- random_sampling_contrast} else {
+      random_sampling_contrast_all <- rbind(random_sampling_contrast_all, random_sampling_contrast)
+    }
+#####################################################################################
+#Plotting regression coefficient slope for each sensor over time for daily sampling #
+#####################################################################################
+
+tmp <- md_result
+tmp$rep <- as.factor(tmp$rep)
+
+plot_title = paste("Temperature increase (slope) per year. ",format(as.Date(min(data_subset$datetime))), "to", format(as.Date(max(data_subset$datetime))),"Sampling resolution: ",  df_random_contrast$sampling_freq[1], "/ Nr. of replicate samplings:", cycles)
+
+ j <- ggplot(tmp, aes(x = sensor_id, y=estimate_slope), ylab="slope") + 
+    geom_bar(stat="identity", position="dodge") +
+    labs(title = plot_title, y="slope (°C / year)") + 
+  #significances of slopes across sensors
+  #   annotate("text", x = "oxygen_574", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.4, label = "A", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.4, label = "AB", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.4, label = "B", size=6) +
+  # #significances of individual slopes against 0
+  #   annotate("text", x = "oxygen_574", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe45_0403", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "sbe38_0657", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "validated_svluwobs", y = 0.35, label = "***", size=6) +
+  #   annotate("text", x = "adcp_17374", y = 0.35, label = "***", size=6) +
+    theme(plot.title = element_text(size=8))
+    print(j)
+
+############################################
+#end loop for repetitive (cycles) sampling #
+############################################    
+  } 
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result)
+print(assign(paste0("df_anova_all_result_",df$sampling_freq[1]),df_anova_all_result))
+
+assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all)
+print(assign(paste0("md_result_all_",df$sampling_freq[1]),md_result_all))
+
+assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all)
+print(assign(paste0("df_anova_result_all_",df$sampling_freq[1]),df_anova_result_all))
+
+assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all)
+print(assign(paste0("random_sampling_contrast_all_",df$sampling_freq[1]),random_sampling_contrast_all))
+################################
+
+```
+
+#### Daily sampling min value
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  options(scipen=0)   
+
+  if(exists("df_mean")) {
+    rm(df_mean)
+  }  
+
+  df <- root
+  df$sampling_freq <- as.factor("day_min")
+  df$sampling_group <- as.factor(paste0(date(df$datetime)))
+
+####################################################
+#Creating dataset with mean values #
+####################################################
+  df$datetime_n <- as.numeric(df$datetime)
+  df_mean <- ddply(df,.(sampling_group, sensor_id),summarize, datetime_n = mean(datetime_n), temperature = min(temperature))
+  df_mean$datetime <- as.POSIXct(df_mean$datetime_n, origin='1970-01-01')
+  df_mean <- df_mean[order(df_mean$datetime),]
+  
+###################################################################################
+#Testing factors datetime and sensor for each sensor separtely on significance and interactions #
+###################################################################################
+
+
+# return a list
+models <- dlply(df_mean, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_mean %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq")]
+#print(md_result) 
+
+
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("md_result_day_min_",df$sampling_freq[1]),md_result)
+print(assign(paste0("md_result_day_min_",df$sampling_freq[1]),md_result))
+
+################################
+
+```
+
+
+#### Daily sampling mean value
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  options(scipen=0)   
+
+  if(exists("df_mean")) {
+    rm(df_mean)
+  }  
+
+  df <- root
+  df$sampling_freq <- as.factor("day_mean")
+  df$sampling_group <- as.factor(paste0(date(df$datetime)))
+
+####################################################
+#Creating dataset with mean values #
+####################################################
+  df$datetime_n <- as.numeric(df$datetime)
+  df_mean <- ddply(df,.(sampling_group, sensor_id),summarize, datetime_n = mean(datetime_n), temperature = mean(temperature))
+  df_mean$datetime <- as.POSIXct(df_mean$datetime_n, origin='1970-01-01')
+  df_mean <- df_mean[order(df_mean$datetime),]
+  
+###################################################################################
+#Testing factors datetime and sensor for each sensor separtely on significance and interactions #
+###################################################################################
+
+
+# return a list
+models <- dlply(df_mean, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_mean %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq")]
+#print(md_result) 
+
+
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("md_result_day_mean_",df$sampling_freq[1]),md_result)
+print(assign(paste0("md_result_day_mean_",df$sampling_freq[1]),md_result))
+
+################################
+
+```
+
+
+
+
+
+
+#### Daily sampling max value
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  options(scipen=0)   
+
+  if(exists("df_mean")) {
+    rm(df_mean)
+  }  
+
+  df <- root
+  df$sampling_freq <- as.factor("day_max")
+  df$sampling_group <- as.factor(paste0(date(df$datetime)))
+
+####################################################
+#Creating dataset with mean values #
+####################################################
+  df$datetime_n <- as.numeric(df$datetime)
+  df_mean <- ddply(df,.(sampling_group, sensor_id),summarize, datetime_n = mean(datetime_n), temperature = max(temperature))
+  df_mean$datetime <- as.POSIXct(df_mean$datetime_n, origin='1970-01-01')
+  df_mean <- df_mean[order(df_mean$datetime),]
+  
+###################################################################################
+#Testing factors datetime and sensor for each sensor separtely on significance and interactions #
+###################################################################################
+
+
+# return a list
+models <- dlply(df_mean, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_mean %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq")]
+#print(md_result) 
+
+
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("md_result_day_max_",df$sampling_freq[1]),md_result)
+print(assign(paste0("md_result_day_max_",df$sampling_freq[1]),md_result))
+
+################################
+
+```
+
+
+
+
+
+
+#### Weekly sampling min value
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  options(scipen=0)   
+
+  if(exists("df_mean")) {
+    rm(df_mean)
+  }  
+
+  df <- root
+  df$sampling_freq <- as.factor("week_min")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",week(df$datetime)))
+
+####################################################
+#Creating dataset with mean values #
+####################################################
+  df$datetime_n <- as.numeric(df$datetime)
+  df_mean <- ddply(df,.(sampling_group, sensor_id),summarize, datetime_n = mean(datetime_n), temperature = min(temperature))
+  df_mean$datetime <- as.POSIXct(df_mean$datetime_n, origin='1970-01-01')
+  df_mean <- df_mean[order(df_mean$datetime),]
+  
+###################################################################################
+#Testing factors datetime and sensor for each sensor separtely on significance and interactions #
+###################################################################################
+
+
+# return a list
+models <- dlply(df_mean, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_mean %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq")]
+#print(md_result) 
+
+
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("md_result_week_min_",df$sampling_freq[1]),md_result)
+print(assign(paste0("md_result_week_min_",df$sampling_freq[1]),md_result))
+
+################################
+
+```
+
+#### Weekly sampling mean value
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  options(scipen=0)   
+
+  if(exists("df_mean")) {
+    rm(df_mean)
+  }  
+
+  df <- root
+  df$sampling_freq <- as.factor("week_mean")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",week(df$datetime)))
+
+####################################################
+#Creating dataset with mean values #
+####################################################
+  df$datetime_n <- as.numeric(df$datetime)
+  df_mean <- ddply(df,.(sampling_group, sensor_id),summarize, datetime_n = mean(datetime_n), temperature = mean(temperature))
+  df_mean$datetime <- as.POSIXct(df_mean$datetime_n, origin='1970-01-01')
+  df_mean <- df_mean[order(df_mean$datetime),]
+  
+###################################################################################
+#Testing factors datetime and sensor for each sensor separtely on significance and interactions #
+###################################################################################
+
+
+# return a list
+models <- dlply(df_mean, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_mean %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq")]
+#print(md_result) 
+
+
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("md_result_week_mean_",df$sampling_freq[1]),md_result)
+print(assign(paste0("md_result_week_mean_",df$sampling_freq[1]),md_result))
+
+################################
+
+```
+
+
+#### Weekly sampling max value
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  options(scipen=0)   
+
+  if(exists("df_mean")) {
+    rm(df_mean)
+  }  
+
+  df <- root
+  df$sampling_freq <- as.factor("week_max")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",week(df$datetime)))
+
+####################################################
+#Creating dataset with mean values #
+####################################################
+  df$datetime_n <- as.numeric(df$datetime)
+  df_mean <- ddply(df,.(sampling_group, sensor_id),summarize, datetime_n = mean(datetime_n), temperature = max(temperature))
+  df_mean$datetime <- as.POSIXct(df_mean$datetime_n, origin='1970-01-01')
+  df_mean <- df_mean[order(df_mean$datetime),]
+  
+###################################################################################
+#Testing factors datetime and sensor for each sensor separtely on significance and interactions #
+###################################################################################
+
+
+# return a list
+models <- dlply(df_mean, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_mean %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq")]
+#print(md_result) 
+
+
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("md_result_week_max_",df$sampling_freq[1]),md_result)
+print(assign(paste0("md_result_week_max_",df$sampling_freq[1]),md_result))
+
+################################
+
+```
+
+
+
+
+
+
+
+#### Monthly sampling min value
+
+
+
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  options(scipen=0)   
+
+  if(exists("df_mean")) {
+    rm(df_mean)
+  }  
+
+  df <- root
+  df$sampling_freq <- as.factor("month_min")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",month(df$datetime)))
+
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+  df$datetime_n <- as.numeric(df$datetime)
+  df_mean <- ddply(df,.(sampling_group, sensor_id),summarize, datetime_n = mean(datetime_n), temperature = min(temperature))
+  df_mean$datetime <- as.POSIXct(df_mean$datetime_n, origin='1970-01-01')
+  df_mean <- df_mean[order(df_mean$datetime),]
+  
+###################################################################################
+#Testing factors datetime and sensor for each sensor separtely on significance and interactions #
+###################################################################################
+
+
+# return a list
+models <- dlply(df_mean, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_mean %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+
+md_result$replicate <- df_mean$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq")]
+#print(md_result) 
+
+
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("md_result_month_min_",df$sampling_freq[1]),md_result)
+print(assign(paste0("md_result_month_min_",df$sampling_freq[1]),md_result))
+
+################################
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### Monthly sampling mean value
+
+
+
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  options(scipen=0)   
+
+  if(exists("df_mean")) {
+    rm(df_mean)
+  }  
+
+  df <- root
+  df$sampling_freq <- as.factor("month_mean")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",month(df$datetime)))
+
+####################################################
+#Creating dataset with "cycles" repetitivesampling #
+####################################################
+  df$datetime_n <- as.numeric(df$datetime)
+  df_mean <- ddply(df,.(sampling_group, sensor_id),summarize, datetime_n = mean(datetime_n), temperature = mean(temperature))
+  df_mean$datetime <- as.POSIXct(df_mean$datetime_n, origin='1970-01-01')
+  df_mean <- df_mean[order(df_mean$datetime),]
+  
+###################################################################################
+#Testing factors datetime and sensor for each sensor separtely on significance and interactions #
+###################################################################################
+
+
+# return a list
+models <- dlply(df_mean, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_mean %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+
+md_result$replicate <- df_mean$replicate[1]
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq")]
+#print(md_result) 
+
+
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("md_result_month_mean_",df$sampling_freq[1]),md_result)
+print(assign(paste0("md_result_month_mean_",df$sampling_freq[1]),md_result))
+
+################################
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### Monthly sampling max value
+```{r , echo=FALSE}
+###########################################################
+#preparing dataset for weekly repetitive (cycles) sampling # 
+###########################################################
+  options(scipen=0)   
+
+  if(exists("df_mean")) {
+    rm(df_mean)
+  }  
+
+  df <- root
+  df$sampling_freq <- as.factor("month_max")
+  df$sampling_group <- as.factor(paste0(year(df$datetime),"-",month(df$datetime)))
+
+####################################################
+#Creating dataset with mean values #
+####################################################
+  df$datetime_n <- as.numeric(df$datetime)
+  df_mean <- ddply(df,.(sampling_group, sensor_id),summarize, datetime_n = mean(datetime_n), temperature = max(temperature))
+  df_mean$datetime <- as.POSIXct(df_mean$datetime_n, origin='1970-01-01')
+  df_mean <- df_mean[order(df_mean$datetime),]
+  
+###################################################################################
+#Testing factors datetime and sensor for each sensor separtely on significance and interactions #
+###################################################################################
+
+
+# return a list
+models <- dlply(df_mean, "sensor_id", function(df) 
+  lm(temperature ~ datetime, data = df))
+
+# Apply coef to each model and return a data frame
+slopes <- ldply(models, coef)
+names(slopes)[3] <- c("slope")
+slopes$slope <- slopes$slope*(60*60*24*365)
+fitted_models = df_mean %>% group_by(sensor_id) %>% do(model = lm(temperature ~ datetime, data = .))
+stat_slopes <- fitted_models %>% tidy(model)
+md <- melt(stat_slopes, id=c("sensor_id", "term"))
+md_result <- cast(md, sensor_id ~ variable+term)
+md_result$estimate_datetime <- md_result$estimate_datetime*(60*60*24*365)
+colnames(md_result) = gsub("(Intercept)", "Intercept", colnames(md_result))
+colnames(md_result) = gsub("(datetime)", "slope", colnames(md_result))
+md_result$p.value_slope.id <- ifelse(md_result$p.value_slope<=0.001, "***", ifelse(md_result$p.value_slope>0.001 & md_result$p.value_slope<=0.01,"**",ifelse(md_result$p.value_slope>0.01 & md_result$p.value_slope<=0.05,"*","n.s.")))
+md_result$sampling_freq <- df$sampling_freq[1]
+
+md_result <- md_result[, c("sensor_id", "estimate_slope", "p.value_slope", "p.value_slope.id", "sampling_freq")]
+#print(md_result) 
+
+
+#################################  
+# Creating reasonable filenames #
+################################# 
+
+assign(paste0("md_result_month_max_",df$sampling_freq[1]),md_result)
+print(assign(paste0("md_result_month_max_",df$sampling_freq[1]),md_result))
+
+################################
+
+```
+
+
+
+
+
+
+
+
+###Results 2 (Interpretation)
+####Combining single datasets
+```{r}
+AAA_anova_all_sensors <- bind_rows(mget(ls(pattern = "df_anova_all_result_.*")), .id = "column_label")
+AAA_lm_single_sensor_all <- bind_rows(mget(ls(pattern = "md_result_all_.*")), .id = "column_label")
+AAA_anova_single_sensor_all <- bind_rows(mget(ls(pattern = "df_anova_result_all_.*")), .id = "column_label")
+AAA_contrast_single_sensor_all <- bind_rows(mget(ls(pattern = "random_sampling_contrast_all_.*")), .id = "column_label")
+```
+
+####Analyzing ANOVA_all_sensors
+```{r}
+#Analyzing the overall anova statistic for all sampling schemes
+AAA_anova_all_sensors$id <- as.character(rownames(AAA_anova_all_sensors))
+AAA_anova_all_sensors$id <-sub("\\..*","",AAA_anova_all_sensors$id)
+AAA_anova_all_sensors <- AAA_anova_all_sensors[,c(8,6,5)]
+AAA_anova_all_sensors <- AAA_anova_all_sensors[AAA_anova_all_sensors$id !="Residuals",]
+AAA_anova_all_sensors_table <- dcast(AAA_anova_all_sensors,id ~ sampling_freq,value.var = "Pr(>F).id", drop=TRUE)
+options(knitr.kable.NA = '')
+kable(AAA_anova_all_sensors_table, align = c('lccccccccc'))
+
+#Analyzing the slope statistics for all sampling schemes
+```
+
+####Analyzing ANOVA_single_sensors
+```{r}
+#Analyzing the overall anova statistic for all sampling schemes
+AAA_anova_single_sensor_all$id <- as.character(rownames(AAA_anova_single_sensor_all))
+AAA_anova_single_sensor_all$id <- gsub("\\..*", "", AAA_anova_single_sensor_all$id)
+AAA_anova_single_sensor_all$id <- gsub('[[:digit:]]+', '', AAA_anova_single_sensor_all$id)
+AAA_anova_single_sensor_all <- AAA_anova_single_sensor_all[!(AAA_anova_single_sensor_all$id=="Residuals"),]
+AAA_anova_single_sensor_all <- AAA_anova_single_sensor_all[,c(6,7,8,4,5)]
+names(AAA_anova_single_sensor_all)[ncol(AAA_anova_single_sensor_all)-1]<-paste("p_value")
+names(AAA_anova_single_sensor_all)[ncol(AAA_anova_single_sensor_all)]<-paste("p_value_id")
+
+#Cretaing rank scores for significance. ***=3, **=2, *=1, ns=0
+AAA_anova_single_sensor_all$p_value_score <- ifelse(AAA_anova_single_sensor_all$p_value_id=="***",100,ifelse(AAA_anova_single_sensor_all$p_value_id=="**",66.6,ifelse(AAA_anova_single_sensor_all$p_value_id=="*",33.3,0)))
+
+AAA_anova_single_sensor_all_table <- ddply(AAA_anova_single_sensor_all,~sampling_freq*id,summarise,mean=mean(p_value_score),sd=sd(p_value_score))
+
+AAA_anova_single_sensor_all_table$sampling_freq <- ordered(AAA_anova_single_sensor_all_table$sampling_freq, levels=c("d-1","d-2","w-1","w-2","w-3","m-1","m-2","m-3"))
+
+df_plot <- AAA_anova_single_sensor_all_table
+
+#Adapting y values to percent predictive capacaty  
+df_plot$sampling_freq_id <- ifelse(df_plot$sampling_freq=="d-1",1,ifelse(df_plot$sampling_freq=="d-2",2,ifelse(df_plot$sampling_freq=="w-1",3,ifelse(df_plot$sampling_freq=="w-2",4,ifelse(df_plot$sampling_freq=="w-3",5,ifelse(df_plot$sampling_freq=="m-1",6,ifelse(df_plot$sampling_freq=="m-2",7,ifelse(df_plot$sampling_freq=="m-3",8,99))))))))
+  
+
+# Use geom_line()+geom_pointrange()
+  # p <- ggplot(df_plot, aes(x=factor(sampling_freq), y=mean, group=id, color=id)) + 
+  # geom_line()+
+  # geom_pointrange(aes(ymin=mean-sd, ymax=mean+sd)) +
+  # theme_classic() +
+  # theme(axis.text.x = element_text(size=10)) +
+  # theme(axis.text.y = element_text(size=10)) +
+  # xlab("sampling scheme") + 
+  # ylab("predictive capacaty of significance (%)")
+  
+  
+  p <- ggplot(df_plot, aes(x=factor(sampling_freq), y=mean, fill=id)) + 
+  geom_bar(stat="identity", color="black", position=position_dodge()) +
+  geom_errorbar(aes(ymin=mean, ymax=mean+sd), width=.0, position=position_dodge(.9)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size=10)) +
+  theme(axis.text.y = element_text(size=10)) +
+  xlab("sampling scheme") + 
+  ylab("predictive capacaty of significance (%)")
+
+  
+  print(p)
+  png(filename="~/Documents/Daten/MOSES/Hydrologische Extreme/ms_take_care_of_your_data/AAA_anova_single_sensor_all_bar.png", width=15, height=10, units = "cm", res=180)
+  print(p)
+  dev.off()
+
+#Analyzing the slope statistics for all sampling schemes
+
+```
+
+####Analyzing ANOVA_lm_single_sensors
+```{r}
+#Analyzing the overall anova statistic for all sampling schemes
+df <- AAA_lm_single_sensor_all
+
+#Cretaing rank scores for significance. ***=3, **=2, *=1, ns=0
+df$p.value_slope.id_score <- ifelse(df$p.value_slope.id=="***",100,ifelse(df$p.value_slope.id=="**",66.6,ifelse(df$p.value_slope.id=="*",33.3,0)))
+
+df_table <- ddply(df,~sampling_freq*sensor_id,summarise,mean_slope=mean(estimate_slope),sd_slope=sd(estimate_slope), mean_p_score=mean(p.value_slope.id_score),sd_p_score=sd(p.value_slope.id_score))
+
+df_table$sampling_freq <- ordered(df_table$sampling_freq,levels=c("hour", "d-1","d-2","w-1","w-2","w-3","m-1","m-2","m-3"))
+
+# Use geom_line()+geom_pointrange()
+  # p <- ggplot(df_table, aes(x=factor(sampling_freq), y=mean_slope, group=sensor_id, color=sensor_id)) + 
+  # geom_line()+
+  # geom_pointrange(aes(ymin=mean_slope-sd_slope, ymax=mean_slope+sd_slope)) +
+  # theme_classic() +
+  # theme(axis.text.x = element_text(size=10)) +
+  # xlab("sampling scheme") + 
+  # ylab("mean temperature increase per year (°C)") +
+  # annotate("text", x = "hour", y = 0.4, label = "a)")
+  
+  p <- ggplot(df_table, aes(x=factor(sampling_freq), y=mean_slope, fill=sensor_id)) + 
+  geom_bar(stat="identity", color="black", position=position_dodge()) +
+  geom_errorbar(aes(ymin=mean_slope, ymax=mean_slope+sd_slope), width=.0, position=position_dodge(.9)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size=10)) +
+  xlab("sampling scheme") + 
+  ylab("mean temperature increase per year (°C)")
+  print(p)
+  png(filename="~/Documents/Daten/MOSES/Hydrologische Extreme/ms_take_care_of_your_data/AAA_lm_single_sensor_all_slope.png",  width=15, height=10, units = "cm", res=180)
+  print(p)
+  dev.off()
+
+  
+  # # Use geom_line()+geom_pointrange()
+  # j <- ggplot(df_table, aes(x=factor(sampling_freq), y=mean_p_score, group=sensor_id, color=sensor_id)) + 
+  # geom_line()+
+  # geom_pointrange(aes(ymin=mean_p_score-sd_p_score, ymax=mean_p_score+sd_p_score)) +
+  # theme_classic() +
+  # theme(axis.text.x = element_text(size=10)) +
+  # theme(axis.text.y = element_text(size=10)) +
+  # xlab("sampling scheme") + 
+  # ylab("predictive capacaty of slope detection (%)") +
+  # annotate("text", x = "hour", y = 80, label = "b)")
+  
+  
+  # Use geom_line()+geom_pointrange()
+  j <- ggplot(df_table, aes(x=factor(sampling_freq), y=mean_p_score, fill=sensor_id)) + 
+  geom_bar(stat="identity", color="black", position=position_dodge()) +
+  geom_errorbar(aes(ymin=mean_p_score, ymax=mean_p_score+sd_p_score), width=.0, position=position_dodge(.9)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size=10)) +
+  theme(axis.text.y = element_text(size=10)) +
+  xlab("sampling scheme") + 
+  ylab("predictive capacaty of slope detection (%)")
+  
+  print(j)
+  png(filename="~/Documents/Daten/MOSES/Hydrologische Extreme/ms_take_care_of_your_data/AAA_lm_single_sensor_all_slope_sig.png",  width=15, height=10, units = "cm", res=180)
+  print(j)
+  dev.off()
+
+```
+
+
+####Analyzing ANOVA_contrast_single_sensors
+```{r}
+#Analyzing the overall anova statistic for all sampling schemes
+df <- AAA_contrast_single_sensor_all
+
+#Cretaing rank scores for significance. ***=3, **=2, *=1, ns=0
+df$p.value_contrast.id_score <- ifelse(df$p.value.id=="***",100,ifelse(df$p.value.id=="**",66.6,ifelse(df$p.value.id=="*",33.3,0)))
+
+df_table <- ddply(df,~sampling_freq*contrast,summarise,mean_p_contrast=mean(p.value_contrast.id_score),sd_p_contrast=sd(p.value_contrast.id_score))
+
+df_table$sampling_freq <- ordered(df_table$sampling_freq,levels=c("hour", "day_restricted","day_full_random","week_restricted","week_half_random","week_full_random","month_restricted","month_half_random","month_full_random"))
+
+
+
+
+df_table_output <- reshape2::dcast(df_table,contrast ~ sampling_freq,value.var = "mean_p_contrast", drop=TRUE)
+options(knitr.kable.NA = '')
+kable(df_table_output, align = c('lccccccccc'))
+
+```
+
+####Analyzing ANOVA_lm_single_sensors_mean_month
+```{r}
+#Analyzing the overall anova statistic for all sampling schemes
+df <- root
+
+
+
+#Cretaing rank scores for significance. ***=3, **=2, *=1, ns=0
+df$p.value_slope.id_score <- ifelse(df$p.value_slope.id=="***",100,ifelse(df$p.value_slope.id=="**",66.6,ifelse(df$p.value_slope.id=="*",33.3,0)))
+
+df_table <- ddply(df,~sampling_freq*sensor_id,summarise,mean_slope=mean(estimate_slope),sd_slope=sd(estimate_slope), mean_p_score=mean(p.value_slope.id_score),sd_p_score=sd(p.value_slope.id_score))
+
+df_table$sampling_freq <- ordered(df_table$sampling_freq,levels=c("hour", "day_restricted","day_full_random","week_restricted","week_half_random","week_full_random","month_restricted","month_half_random","month_full_random"))
+
+# Use geom_line()+geom_pointrange()
+  p <- ggplot(df_table, aes(x=factor(sampling_freq), y=mean_slope, group=sensor_id, color=sensor_id)) + 
+  geom_line()+
+  geom_pointrange(aes(ymin=mean_slope-sd_slope, ymax=mean_slope+sd_slope)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  xlab("sampling scheme") + 
+  ylab("mean temperature increase per year (°C)") +
+  annotate("text", x = "hour", y = 0.4, label = "a)")
+  
+  print(p)
+  png(filename="~/Documents/Daten/MOSES/Hydrologische Extreme/ms_take_care_of_your_data/AAA_lm_single_sensor_all_slope.png", width=1200, height=800, units = "px", res=180)
+  print(p)
+  dev.off()
+
+  
+  # Use geom_line()+geom_pointrange()
+  j <- ggplot(df_table, aes(x=factor(sampling_freq), y=mean_p_score, group=sensor_id, color=sensor_id)) + 
+  geom_line()+
+  geom_pointrange(aes(ymin=mean_p_score-sd_p_score, ymax=mean_p_score+sd_p_score)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  xlab("sampling scheme") + 
+  ylab("predictive capacaty of slope detection (%)") +
+  annotate("text", x = "hour", y = 80, label = "b)")
+  
+  print(j)
+  png(filename="~/Documents/Daten/MOSES/Hydrologische Extreme/ms_take_care_of_your_data/AAA_lm_single_sensor_all_slope_sig.png", width=1200, height=800, units = "px", res=180)
+  print(j)
+  dev.off()
+
+```
