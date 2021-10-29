@@ -1,4 +1,4 @@
-#Source code for manuscript:   
+# Source code for manuscript:   
 # Effects of measuring devices and sampling strategies on the interpretation of long-term monitoring data.
 # published in 
 # Frontiers in Marine Science - Ocean Observation
@@ -7,7 +7,7 @@
 # Hendrik Rust, Claudia Schütze and Uta Koedel
 # The below code is for the manuscript section "in silico" sampling  
 # The code uses the dataset 'NRT_data_download_svluwobs_svl_temperature_2012-06-01_2021-01-20.rds' which is loaded in the chunk "Loading Svalbard dataset and selecting variable*. # The datsset is also available in the same git section.
-#
+# If the code is used, please cite the respective manuscript (above) to which the code belongs.
 
 ---
 title: "R notebook for in silico sampling and further calculations in the manuscript “Effects of measuring devices and sampling strategies on the interpretation of monitoring data”."
